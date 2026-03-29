@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>极简地图编辑器</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #ffffff;
+            font-family: sans-serif;
+        }
+
+        #controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(255,255,255,0.96);
+            padding: 10px;
+            border-radius: 8px;
+            display: flex;
+            gap: 10px;
+            z-index: 100;
+            border: 1px solid #000;
+        }
+
+        canvas {
+            cursor: grab;
+            display: block;
+        }
+
+        canvas.dragging {
+            cursor: grabbing;
+        }
+
+        #menu {
+            position: absolute;
+            display: none;
+            background: #fff;
+            border: 2px solid #000;
+            border-radius: 8px;
+            padding: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            z-index: 1000;
+        }
+
+        .menu-grid {
+            display: grid;
+            grid-template-areas:
+                ". top ."
+                "left center right"
+                ". bottom .";
+            gap: 5px;
+        }
+
+        .btn {
+            width: 40px;
+            height: 40px;
+            border: 1px solid #000;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #fff;
+            color: #000;
+        }
+
+        .btn.active {
+            background: #000;
+            color: #fff;
+        }
+
+        .btn-center {
+            grid-area: center;
+            font-weight: bold;
+            font-size: 20px;
+        }
+
+        .btn-t { grid-area: top; }
+        .btn-b { grid-area: bottom; }
+        .btn-l { grid-area: left; }
+        .btn-r { grid-area: right; }
+
+        #download-btn,
+        #reset-cam {
+            cursor: pointer;
+            background: #000;
+            color: #fff;
+            border: none;
+            padding: 5px 15px;
+            border-radius: 4px;
+        }
+
+        #mapSize {
+            border: 1px solid #000;
+            border-radius: 4px;
+            padding: 4px 6px;
+        }
+    </style>
+</head>
+<body>
+
+<div id="controls">
+    <input type="number" id="mapSize" value="20" min="5" max="100">
+    <span>格地图</span>
+    <button id="reset-cam">重置视角</button>
+    <button id="download-btn">下载地图数据 (JSON)</button>
+</div>
+
+<div id="menu">
+    <div class="menu-grid">
+        <div class="btn btn-t" onclick="toggleEdge('top')">上</div>
+        <div class="btn btn-l" onclick="toggleEdge('left')">左</div>
+        <div class="btn btn-center" id="btnX" onclick="toggleBigX()">×</div>
+        <div class="btn btn-r" onclick="toggleEdge('right')">右</div>
+        <div class="btn btn-bottom btn-b" onclick="toggleEdge('bottom')">下</div>
+    </div>
+</div>
+
+<canvas id="canvas"></canvas>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const menu = document.getElementById('menu');
+
+// --- 核心状态 ---
+let cols = 20, rows = 20;
+const cellSize = 50;
+let scale = 1.0;
+let offsetX = 100, offsetY = 100;
+let selectedCell = null;
+
+// 拖动状态
+let pointerDown = false;
+let isDraggingView = false;
+let dragStart = { x: 0, y: 0 };
+let lastMouse = { x: 0, y: 0 };
+
+// 地图数据
+let cells = [];
+let hEdges = []; // cols x (rows+1)
+let vEdges = []; // (cols+1) x rows
+
+function initMap(size) {
+    cols = rows = size;
+    cells = Array.from({ length: cols }, () =>
+        Array.from({ length: rows }, () => ({ isBigX: false }))
+    );
+    hEdges = Array.from({ length: cols }, () => Array(rows + 1).fill(false));
+    vEdges = Array.from({ length: cols + 1 }, () => Array(rows).fill(false));
+}
+
+function resizeCanvas() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+
+// --- 渲染逻辑 ---
+function render() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    ctx.save();
+    ctx.translate(offsetX, offsetY);
+    ctx.scale(scale, scale);
+
+    const fullCell = cellSize;
+
+    // 1. 白色地图底
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, cols * fullCell, rows * fullCell);
+
+    // 2. 基础网格线：黑色
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 1 / scale;
+    for (let i = 0; i <= cols; i++) {
+        ctx.beginPath();
+        ctx.moveTo(i * fullCell, 0);
+        ctx.lineTo(i * fullCell, rows * fullCell);
+        ctx.stroke();
+    }
+    for (let j = 0; j <= rows; j++) {
+        ctx.beginPath();
+        ctx.moveTo(0, j * fullCell);
+        ctx.lineTo(cols * fullCell, j * fullCell);
+        ctx.stroke();
+    }
+
+    // 3. 画每个格子里占满格子的 X
+    for (let x = 0; x < cols; x++) {
+        for (let y = 0; y < rows; y++) {
+            if (cells[x][y].isBigX) {
+                const inset = 2 / scale;
+                ctx.strokeStyle = '#d32f2f';
+                ctx.lineWidth = 4 / scale;
+                ctx.beginPath();
+                ctx.moveTo(x * fullCell + inset, y * fullCell + inset);
+                ctx.lineTo((x + 1) * fullCell - inset, (y + 1) * fullCell - inset);
+                ctx.moveTo((x + 1) * fullCell - inset, y * fullCell + inset);
+                ctx.lineTo(x * fullCell + inset, (y + 1) * fullCell - inset);
+                ctx.stroke();
+            }
+        }
+    }
+
+    // 4. 画加粗边
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 6 / scale;
+
+    hEdges.forEach((col, x) => col.forEach((active, y) => {
+        if (active) {
+            ctx.beginPath();
+            ctx.moveTo(x * fullCell, y * fullCell);
+            ctx.lineTo((x + 1) * fullCell, y * fullCell);
+            ctx.stroke();
+        }
+    }));
+
+    vEdges.forEach((col, x) => col.forEach((active, y) => {
+        if (active) {
+            ctx.beginPath();
+            ctx.moveTo(x * fullCell, y * fullCell);
+            ctx.lineTo(x * fullCell, (y + 1) * fullCell);
+            ctx.stroke();
+        }
+    }));
+
+    ctx.restore();
+    requestAnimationFrame(render);
+}
+
+// --- 坐标工具 ---
+function screenToWorld(screenX, screenY) {
+    return {
+        x: (screenX - offsetX) / scale,
+        y: (screenY - offsetY) / scale
+    };
+}
+
+function getCellAt(screenX, screenY) {
+    const world = screenToWorld(screenX, screenY);
+    const gx = Math.floor(world.x / cellSize);
+    const gy = Math.floor(world.y / cellSize);
+
+    if (gx >= 0 && gx < cols && gy >= 0 && gy < rows) {
+        return { x: gx, y: gy };
+    }
+    return null;
+}
+
+// --- 拖动与点击逻辑 ---
+// 左键：点击格子打开菜单；拖动则平移视角
+// 中键/右键：直接拖动视角
+canvas.addEventListener('mousedown', e => {
+    pointerDown = true;
+    isDraggingView = (e.button === 1 || e.button === 2);
+    dragStart = { x: e.clientX, y: e.clientY };
+    lastMouse = { x: e.clientX, y: e.clientY };
+
+    if (isDraggingView) {
+        menu.style.display = 'none';
+        canvas.classList.add('dragging');
+    }
+});
+
+window.addEventListener('mousemove', e => {
+    if (!pointerDown) return;
+
+    const dx = e.clientX - lastMouse.x;
+    const dy = e.clientY - lastMouse.y;
+    const totalDx = e.clientX - dragStart.x;
+    const totalDy = e.clientY - dragStart.y;
+
+    if (!isDraggingView && Math.hypot(totalDx, totalDy) > 4) {
+        isDraggingView = true;
+        menu.style.display = 'none';
+        canvas.classList.add('dragging');
+    }
+
+    if (isDraggingView) {
+        offsetX += dx;
+        offsetY += dy;
+    }
+
+    lastMouse = { x: e.clientX, y: e.clientY };
+});
+
+window.addEventListener('mouseup', e => {
+    if (!pointerDown) return;
+
+    const wasDragging = isDraggingView;
+    pointerDown = false;
+    isDraggingView = false;
+    canvas.classList.remove('dragging');
+
+    if (!wasDragging && e.button === 0) {
+        const cell = getCellAt(e.clientX, e.clientY);
+        if (cell) {
+            openMenu(cell.x, cell.y, e.clientX, e.clientY);
+        } else {
+            menu.style.display = 'none';
+        }
+    }
+});
+
+window.addEventListener('contextmenu', e => e.preventDefault());
+
+// 缩放逻辑：以鼠标为中心
+canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+
+    const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+    const newScale = Math.max(0.2, Math.min(5, scale * zoomFactor));
+
+    const mouseWorldX = (e.clientX - offsetX) / scale;
+    const mouseWorldY = (e.clientY - offsetY) / scale;
+
+    scale = newScale;
+    offsetX = e.clientX - mouseWorldX * scale;
+    offsetY = e.clientY - mouseWorldY * scale;
+}, { passive: false });
+
+// --- 菜单功能 ---
+function openMenu(x, y, screenX, screenY) {
+    selectedCell = { x, y };
+    menu.style.left = screenX + 'px';
+    menu.style.top = screenY + 'px';
+    menu.style.display = 'block';
+    updateMenuUI();
+}
+
+function updateMenuUI() {
+    if (!selectedCell) return;
+    const { x, y } = selectedCell;
+
+    document.getElementById('btnX').classList.toggle('active', cells[x][y].isBigX);
+    document.querySelector('.btn-t').classList.toggle('active', hEdges[x][y]);
+    document.querySelector('.btn-b').classList.toggle('active', hEdges[x][y + 1]);
+    document.querySelector('.btn-l').classList.toggle('active', vEdges[x][y]);
+    document.querySelector('.btn-r').classList.toggle('active', vEdges[x + 1][y]);
+}
+
+window.toggleBigX = function () {
+    const { x, y } = selectedCell;
+    cells[x][y].isBigX = !cells[x][y].isBigX;
+
+    if (cells[x][y].isBigX) {
+        hEdges[x][y] = false;
+        hEdges[x][y + 1] = false;
+        vEdges[x][y] = false;
+        vEdges[x + 1][y] = false;
+    }
+
+    updateMenuUI();
+};
+
+window.toggleEdge = function (dir) {
+    const { x, y } = selectedCell;
+
+    if (cells[x][y].isBigX) cells[x][y].isBigX = false;
+
+    if (dir === 'top') hEdges[x][y] = !hEdges[x][y];
+    if (dir === 'bottom') hEdges[x][y + 1] = !hEdges[x][y + 1];
+    if (dir === 'left') vEdges[x][y] = !vEdges[x][y];
+    if (dir === 'right') vEdges[x + 1][y] = !vEdges[x + 1][y];
+
+    updateMenuUI();
+};
+
+// --- 初始化与工具 ---
+document.getElementById('reset-cam').onclick = () => {
+    offsetX = 100;
+    offsetY = 100;
+    scale = 1;
+    menu.style.display = 'none';
+};
+
+document.getElementById('mapSize').onchange = e => {
+    initMap(parseInt(e.target.value, 10));
+    menu.style.display = 'none';
+};
+
+document.getElementById('download-btn').onclick = () => {
+    const data = { cells, hEdges, vEdges, cols, rows };
+    const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'map_data.json';
+    a.click();
+    URL.revokeObjectURL(url);
+};
+
+window.addEventListener('resize', resizeCanvas);
+
+initMap(20);
+resizeCanvas();
+render();
+</script>
+</body>
+</html>
