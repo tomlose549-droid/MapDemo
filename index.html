@@ -1,401 +1,875 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <title>极简地图编辑器</title>
-    <style>
-        body {
-            margin: 0;
-            overflow: hidden;
-            background: #ffffff;
-            font-family: sans-serif;
-        }
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>棋盘地图编辑与自动演化系统</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      background: #f4f4f5;
+      color: #18181b;
+    }
+    .app {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: 280px 1fr 280px;
+      gap: 16px;
+      align-items: start;
+    }
+    .card {
+      background: #fff;
+      border: 1px solid #e4e4e7;
+      border-radius: 20px;
+      box-shadow: 0 1px 2px rgba(0,0,0,.04);
+      overflow: hidden;
+    }
+    .card-header {
+      padding: 18px 18px 8px;
+      font-size: 20px;
+      font-weight: 700;
+    }
+    .card-content {
+      padding: 16px 18px 18px;
+    }
+    .section-title {
+      font-size: 14px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .row, .col { display: flex; }
+    .row { gap: 10px; }
+    .col { flex-direction: column; gap: 12px; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .input, .button, .badge {
+      border-radius: 12px;
+      border: 1px solid #d4d4d8;
+      font-size: 14px;
+    }
+    .input {
+      width: 100%;
+      padding: 10px 12px;
+      outline: none;
+      background: #fff;
+    }
+    .input:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,.12); }
+    .button {
+      padding: 10px 12px;
+      background: #fff;
+      cursor: pointer;
+      transition: .18s ease;
+      color: #18181b;
+      font-weight: 600;
+    }
+    .button:hover { transform: translateY(-1px); background: #fafafa; }
+    .button:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+    .button.primary { background: #18181b; color: #fff; border-color: #18181b; }
+    .button.secondary { background: #e4e4e7; border-color: #d4d4d8; }
+    .button.active { background: #18181b; color: #fff; border-color: #18181b; }
+    .separator {
+      height: 1px;
+      background: #e4e4e7;
+      margin: 4px 0;
+    }
+    .badges { display: flex; flex-wrap: wrap; gap: 8px; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 10px;
+      background: #fafafa;
+      font-weight: 700;
+      font-size: 12px;
+    }
+    .badge.active { background: #18181b; color: #fff; border-color: #18181b; }
+    .alert {
+      padding: 12px 14px;
+      border-radius: 14px;
+      background: #fafafa;
+      border: 1px solid #e4e4e7;
+    }
+    .alert-title { font-size: 13px; font-weight: 700; margin-bottom: 4px; }
+    .alert-desc { font-size: 14px; line-height: 1.5; }
+    .map-wrap {
+      border: 1px solid #e4e4e7;
+      border-radius: 18px;
+      padding: 12px;
+      background: #fff;
+      overflow: auto;
+    }
+    .map-grid {
+      display: grid;
+      gap: 4px;
+      user-select: none;
+      min-width: 300px;
+    }
+    .cell {
+      position: relative;
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      border: 1px solid transparent;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      cursor: crosshair;
+      transition: transform .15s ease, box-shadow .15s ease, filter .15s ease, background .2s ease;
+    }
+    .cell.editor:hover { transform: scale(1.04); }
+    .cell.simulation { cursor: default; }
+    .coord {
+      position: absolute;
+      right: 3px;
+      bottom: 2px;
+      font-size: 8px;
+      opacity: .7;
+      pointer-events: none;
+    }
+    .preview { box-shadow: 0 0 0 3px rgba(253,224,71,.85); }
+    .flash-fire { box-shadow: 0 0 0 4px rgba(252,165,165,.95); }
+    .flash-forest { box-shadow: 0 0 0 4px rgba(134,239,172,.95); }
+    .flash-water { box-shadow: 0 0 0 4px rgba(147,197,253,.95); }
+    .flash-changed { box-shadow: 0 0 0 4px rgba(253,224,71,.95); }
 
-        #controls {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            background: rgba(255,255,255,0.96);
-            padding: 10px;
-            border-radius: 8px;
-            display: flex;
-            gap: 10px;
-            z-index: 100;
-            border: 1px solid #000;
-        }
+    .terrain-fire { background: #ef4444; border-color: #991b1b; color: white; }
+    .terrain-forest { background: #16a34a; border-color: #166534; color: white; }
+    .terrain-road { background: #a1a1aa; border-color: #52525b; color: #111827; }
+    .terrain-mountain { background: #18181b; border-color: #3f3f46; color: white; }
+    .terrain-water { background: #3b82f6; border-color: #1d4ed8; color: white; }
 
-        canvas {
-            cursor: grab;
-            display: block;
-        }
+    .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .stat {
+      border-radius: 14px;
+      padding: 12px;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .stat.fire { background: #fef2f2; }
+    .stat.forest { background: #f0fdf4; }
+    .stat.road { background: #f4f4f5; }
+    .stat.mountain { background: #e4e4e7; }
+    .stat.water { background: #eff6ff; grid-column: span 2; }
+    .muted-box {
+      background: #f4f4f5;
+      border-radius: 14px;
+      padding: 12px;
+      font-size: 13px;
+      line-height: 1.6;
+      color: #3f3f46;
+    }
+    .toolbar { display: flex; flex-direction: column; gap: 8px; }
+    .toolbar .button { justify-content: flex-start; text-align: left; }
+    .top-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 
-        canvas.dragging {
-            cursor: grabbing;
-        }
-
-        #menu {
-            position: absolute;
-            display: none;
-            background: #fff;
-            border: 2px solid #000;
-            border-radius: 8px;
-            padding: 10px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-            z-index: 1000;
-        }
-
-        .menu-grid {
-            display: grid;
-            grid-template-areas:
-                ". top ."
-                "left center right"
-                ". bottom .";
-            gap: 5px;
-        }
-
-        .btn {
-            width: 40px;
-            height: 40px;
-            border: 1px solid #000;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: #fff;
-            color: #000;
-        }
-
-        .btn.active {
-            background: #000;
-            color: #fff;
-        }
-
-        .btn-center {
-            grid-area: center;
-            font-weight: bold;
-            font-size: 20px;
-        }
-
-        .btn-t { grid-area: top; }
-        .btn-b { grid-area: bottom; }
-        .btn-l { grid-area: left; }
-        .btn-r { grid-area: right; }
-
-        #download-btn,
-        #reset-cam {
-            cursor: pointer;
-            background: #000;
-            color: #fff;
-            border: none;
-            padding: 5px 15px;
-            border-radius: 4px;
-        }
-
-        #mapSize {
-            border: 1px solid #000;
-            border-radius: 4px;
-            padding: 4px 6px;
-        }
-    </style>
+    @media (max-width: 1100px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+  </style>
 </head>
 <body>
+  <div class="app">
+    <div class="layout">
+      <div class="card">
+        <div class="card-header">地图控制</div>
+        <div class="card-content col">
+          <div class="grid2">
+            <div>
+              <div class="section-title">宽度 X</div>
+              <input id="widthInput" class="input" type="number" min="1" value="12" />
+            </div>
+            <div>
+              <div class="section-title">高度 Y</div>
+              <input id="heightInput" class="input" type="number" min="1" value="12" />
+            </div>
+          </div>
+          <button id="resizeBtn" class="button primary">新建 / 修改尺寸</button>
+          <button id="resetBtn" class="button">重置为道路</button>
+          <div class="separator"></div>
+          <div>
+            <div class="section-title">保存与读取</div>
+            <div class="grid2">
+              <button id="saveBtn" class="button">保存</button>
+              <button id="loadBtn" class="button">读取</button>
+            </div>
+          </div>
+          <div class="separator"></div>
+          <div>
+            <div class="section-title">撤销 / 重做</div>
+            <div class="grid2">
+              <button id="undoBtn" class="button">撤销</button>
+              <button id="redoBtn" class="button">重做</button>
+            </div>
+          </div>
+          <div class="separator"></div>
+          <div>
+            <div class="section-title">当前模式</div>
+            <div class="badges">
+              <span id="badgeEditor" class="badge active">编辑模式</span>
+              <span id="badgeSimulation" class="badge">演化模式</span>
+              <span id="badgeRunning" class="badge">已暂停</span>
+            </div>
+          </div>
+        </div>
+      </div>
 
-<div id="controls">
-    <input type="number" id="mapSize" value="20" min="5" max="100">
-    <span>格地图</span>
-    <button id="reset-cam">重置视角</button>
-    <button id="download-btn">下载地图数据 (JSON)</button>
-</div>
+      <div class="card">
+        <div class="card-header">
+          <div style="display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:center;">
+            <span>棋盘地图</span>
+            <div id="modeActions" class="top-actions"></div>
+          </div>
+        </div>
+        <div class="card-content">
+          <div class="map-wrap">
+            <div id="mapGrid" class="map-grid"></div>
+          </div>
+        </div>
+      </div>
 
-<div id="menu">
-    <div class="menu-grid">
-        <div class="btn btn-t" onclick="toggleEdge('top')">上</div>
-        <div class="btn btn-l" onclick="toggleEdge('left')">左</div>
-        <div class="btn btn-center" id="btnX" onclick="toggleBigX()">×</div>
-        <div class="btn btn-r" onclick="toggleEdge('right')">右</div>
-        <div class="btn btn-bottom btn-b" onclick="toggleEdge('bottom')">下</div>
+      <div class="col">
+        <div class="card">
+          <div class="card-header">地形画笔</div>
+          <div class="card-content col">
+            <div id="brushToolbar" class="toolbar"></div>
+            <div class="muted-box">当前画笔：<span id="currentBrushLabel" style="font-weight:700;"></span></div>
+            <div class="muted-box">
+              操作方式：<br />
+              点击单格可绘制。<br />
+              按住鼠标拖拽可框选填充。
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">状态信息</div>
+          <div class="card-content col">
+            <div class="alert">
+              <div class="alert-title">系统提示</div>
+              <div id="statusMessage" class="alert-desc">已进入编辑模式</div>
+            </div>
+            <div class="stat-grid">
+              <div class="stat fire">火焰：<span id="countFire">0</span></div>
+              <div class="stat forest">森林：<span id="countForest">0</span></div>
+              <div class="stat road">道路：<span id="countRoad">0</span></div>
+              <div class="stat mountain">山脉：<span id="countMountain">0</span></div>
+              <div class="stat water">湖泊：<span id="countWater">0</span></div>
+            </div>
+            <div class="muted-box">
+              当前轮数：<span id="roundText" style="font-weight:700;">0</span><br />
+              节奏：<span style="font-weight:700;">每秒 1 轮</span>
+            </div>
+            <div class="muted-box">
+              规则摘要：<br />
+              火扩张 3 格，森林扩张 4 格，水扩张 2 格。<br />
+              森林邻水，水变森林。<br />
+              火邻森林，整片森林变火。<br />
+              水邻火，整片火变水。<br />
+              山脉不可覆盖并阻挡扩张。
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
-</div>
+  </div>
 
-<canvas id="canvas"></canvas>
+  <script>
+    const STORAGE_KEY = "terrain-sim-map-v1";
+    const TICK_MS = 1000;
+    const MAX_UNDO = 50;
 
-<script>
-const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
-const menu = document.getElementById('menu');
-
-// --- 核心状态 ---
-let cols = 20, rows = 20;
-const cellSize = 50;
-let scale = 1.0;
-let offsetX = 100, offsetY = 100;
-let selectedCell = null;
-
-// 拖动状态
-let pointerDown = false;
-let isDraggingView = false;
-let dragStart = { x: 0, y: 0 };
-let lastMouse = { x: 0, y: 0 };
-
-// 地图数据
-let cells = [];
-let hEdges = []; // cols x (rows+1)
-let vEdges = []; // (cols+1) x rows
-
-function initMap(size) {
-    cols = rows = size;
-    cells = Array.from({ length: cols }, () =>
-        Array.from({ length: rows }, () => ({ isBigX: false }))
-    );
-    hEdges = Array.from({ length: cols }, () => Array(rows + 1).fill(false));
-    vEdges = Array.from({ length: cols + 1 }, () => Array(rows).fill(false));
-}
-
-function resizeCanvas() {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-}
-
-// --- 渲染逻辑 ---
-function render() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    ctx.save();
-    ctx.translate(offsetX, offsetY);
-    ctx.scale(scale, scale);
-
-    const fullCell = cellSize;
-
-    // 1. 白色地图底
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, cols * fullCell, rows * fullCell);
-
-    // 2. 基础网格线：黑色
-    ctx.strokeStyle = '#000000';
-    ctx.lineWidth = 1 / scale;
-    for (let i = 0; i <= cols; i++) {
-        ctx.beginPath();
-        ctx.moveTo(i * fullCell, 0);
-        ctx.lineTo(i * fullCell, rows * fullCell);
-        ctx.stroke();
-    }
-    for (let j = 0; j <= rows; j++) {
-        ctx.beginPath();
-        ctx.moveTo(0, j * fullCell);
-        ctx.lineTo(cols * fullCell, j * fullCell);
-        ctx.stroke();
-    }
-
-    // 3. 画每个格子里占满格子的 X
-    for (let x = 0; x < cols; x++) {
-        for (let y = 0; y < rows; y++) {
-            if (cells[x][y].isBigX) {
-                const inset = 2 / scale;
-                ctx.strokeStyle = '#d32f2f';
-                ctx.lineWidth = 4 / scale;
-                ctx.beginPath();
-                ctx.moveTo(x * fullCell + inset, y * fullCell + inset);
-                ctx.lineTo((x + 1) * fullCell - inset, (y + 1) * fullCell - inset);
-                ctx.moveTo((x + 1) * fullCell - inset, y * fullCell + inset);
-                ctx.lineTo(x * fullCell + inset, (y + 1) * fullCell - inset);
-                ctx.stroke();
-            }
-        }
-    }
-
-    // 4. 画加粗边
-    ctx.strokeStyle = '#000000';
-    ctx.lineWidth = 6 / scale;
-
-    hEdges.forEach((col, x) => col.forEach((active, y) => {
-        if (active) {
-            ctx.beginPath();
-            ctx.moveTo(x * fullCell, y * fullCell);
-            ctx.lineTo((x + 1) * fullCell, y * fullCell);
-            ctx.stroke();
-        }
-    }));
-
-    vEdges.forEach((col, x) => col.forEach((active, y) => {
-        if (active) {
-            ctx.beginPath();
-            ctx.moveTo(x * fullCell, y * fullCell);
-            ctx.lineTo(x * fullCell, (y + 1) * fullCell);
-            ctx.stroke();
-        }
-    }));
-
-    ctx.restore();
-    requestAnimationFrame(render);
-}
-
-// --- 坐标工具 ---
-function screenToWorld(screenX, screenY) {
-    return {
-        x: (screenX - offsetX) / scale,
-        y: (screenY - offsetY) / scale
+    const TERRAIN_META = {
+      fire: { label: "火焰", icon: "🔥", className: "terrain-fire" },
+      forest: { label: "森林", icon: "🌲", className: "terrain-forest" },
+      road: { label: "道路", icon: "🛣️", className: "terrain-road" },
+      mountain: { label: "山脉", icon: "⛰️", className: "terrain-mountain" },
+      water: { label: "湖泊", icon: "🌊", className: "terrain-water" },
     };
-}
 
-function getCellAt(screenX, screenY) {
-    const world = screenToWorld(screenX, screenY);
-    const gx = Math.floor(world.x / cellSize);
-    const gy = Math.floor(world.y / cellSize);
+    const BRUSHES = ["fire", "forest", "road", "mountain", "water"];
 
-    if (gx >= 0 && gx < cols && gy >= 0 && gy < rows) {
-        return { x: gx, y: gy };
+    const state = {
+      mapData: createMap(12, 12),
+      mode: "editor",
+      isRunning: false,
+      round: 0,
+      selectedBrush: "fire",
+      undoStack: [],
+      redoStack: [],
+      dragStart: null,
+      dragCurrent: null,
+      isDragging: false,
+      flashCells: new Map(),
+      timer: null,
+      statusResetTimer: null,
+    };
+
+    const el = {
+      widthInput: document.getElementById("widthInput"),
+      heightInput: document.getElementById("heightInput"),
+      resizeBtn: document.getElementById("resizeBtn"),
+      resetBtn: document.getElementById("resetBtn"),
+      saveBtn: document.getElementById("saveBtn"),
+      loadBtn: document.getElementById("loadBtn"),
+      undoBtn: document.getElementById("undoBtn"),
+      redoBtn: document.getElementById("redoBtn"),
+      mapGrid: document.getElementById("mapGrid"),
+      brushToolbar: document.getElementById("brushToolbar"),
+      currentBrushLabel: document.getElementById("currentBrushLabel"),
+      statusMessage: document.getElementById("statusMessage"),
+      badgeEditor: document.getElementById("badgeEditor"),
+      badgeSimulation: document.getElementById("badgeSimulation"),
+      badgeRunning: document.getElementById("badgeRunning"),
+      modeActions: document.getElementById("modeActions"),
+      countFire: document.getElementById("countFire"),
+      countForest: document.getElementById("countForest"),
+      countRoad: document.getElementById("countRoad"),
+      countMountain: document.getElementById("countMountain"),
+      countWater: document.getElementById("countWater"),
+      roundText: document.getElementById("roundText"),
+    };
+
+    function createGrid(width, height, terrain = "road") {
+      return Array.from({ length: height }, () => Array.from({ length: width }, () => terrain));
     }
-    return null;
-}
 
-// --- 拖动与点击逻辑 ---
-// 左键：点击格子打开菜单；拖动则平移视角
-// 中键/右键：直接拖动视角
-canvas.addEventListener('mousedown', e => {
-    pointerDown = true;
-    isDraggingView = (e.button === 1 || e.button === 2);
-    dragStart = { x: e.clientX, y: e.clientY };
-    lastMouse = { x: e.clientX, y: e.clientY };
-
-    if (isDraggingView) {
-        menu.style.display = 'none';
-        canvas.classList.add('dragging');
-    }
-});
-
-window.addEventListener('mousemove', e => {
-    if (!pointerDown) return;
-
-    const dx = e.clientX - lastMouse.x;
-    const dy = e.clientY - lastMouse.y;
-    const totalDx = e.clientX - dragStart.x;
-    const totalDy = e.clientY - dragStart.y;
-
-    if (!isDraggingView && Math.hypot(totalDx, totalDy) > 4) {
-        isDraggingView = true;
-        menu.style.display = 'none';
-        canvas.classList.add('dragging');
+    function cloneGrid(grid) {
+      return grid.map(row => row.slice());
     }
 
-    if (isDraggingView) {
-        offsetX += dx;
-        offsetY += dy;
+    function cloneMap(map) {
+      return { width: map.width, height: map.height, grid: cloneGrid(map.grid) };
     }
 
-    lastMouse = { x: e.clientX, y: e.clientY };
-});
+    function createMap(width, height) {
+      return { width, height, grid: createGrid(width, height, "road") };
+    }
 
-window.addEventListener('mouseup', e => {
-    if (!pointerDown) return;
+    function keyOf(x, y) {
+      return x + "," + y;
+    }
 
-    const wasDragging = isDraggingView;
-    pointerDown = false;
-    isDraggingView = false;
-    canvas.classList.remove('dragging');
+    function parseKey(key) {
+      const [x, y] = key.split(",").map(Number);
+      return [x, y];
+    }
 
-    if (!wasDragging && e.button === 0) {
-        const cell = getCellAt(e.clientX, e.clientY);
-        if (cell) {
-            openMenu(cell.x, cell.y, e.clientX, e.clientY);
-        } else {
-            menu.style.display = 'none';
+    function inBounds(map, x, y) {
+      return x >= 0 && y >= 0 && x < map.width && y < map.height;
+    }
+
+    function neighbors4(map, x, y) {
+      const dirs = [[0,-1],[0,1],[-1,0],[1,0]];
+      return dirs
+        .map(([dx,dy]) => [x + dx, y + dy])
+        .filter(([nx,ny]) => inBounds(map, nx, ny));
+    }
+
+    function getConnectedRegion(map, startX, startY, terrain) {
+      const result = new Set();
+      if (!inBounds(map, startX, startY)) return result;
+      if (map.grid[startY][startX] !== terrain) return result;
+      const queue = [[startX, startY]];
+      result.add(keyOf(startX, startY));
+      while (queue.length) {
+        const [x, y] = queue.shift();
+        for (const [nx, ny] of neighbors4(map, x, y)) {
+          const key = keyOf(nx, ny);
+          if (!result.has(key) && map.grid[ny][nx] === terrain) {
+            result.add(key);
+            queue.push([nx, ny]);
+          }
         }
-    }
-});
-
-window.addEventListener('contextmenu', e => e.preventDefault());
-
-// 缩放逻辑：以鼠标为中心
-canvas.addEventListener('wheel', e => {
-    e.preventDefault();
-
-    const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
-    const newScale = Math.max(0.2, Math.min(5, scale * zoomFactor));
-
-    const mouseWorldX = (e.clientX - offsetX) / scale;
-    const mouseWorldY = (e.clientY - offsetY) / scale;
-
-    scale = newScale;
-    offsetX = e.clientX - mouseWorldX * scale;
-    offsetY = e.clientY - mouseWorldY * scale;
-}, { passive: false });
-
-// --- 菜单功能 ---
-function openMenu(x, y, screenX, screenY) {
-    selectedCell = { x, y };
-    menu.style.left = screenX + 'px';
-    menu.style.top = screenY + 'px';
-    menu.style.display = 'block';
-    updateMenuUI();
-}
-
-function updateMenuUI() {
-    if (!selectedCell) return;
-    const { x, y } = selectedCell;
-
-    document.getElementById('btnX').classList.toggle('active', cells[x][y].isBigX);
-    document.querySelector('.btn-t').classList.toggle('active', hEdges[x][y]);
-    document.querySelector('.btn-b').classList.toggle('active', hEdges[x][y + 1]);
-    document.querySelector('.btn-l').classList.toggle('active', vEdges[x][y]);
-    document.querySelector('.btn-r').classList.toggle('active', vEdges[x + 1][y]);
-}
-
-window.toggleBigX = function () {
-    const { x, y } = selectedCell;
-    cells[x][y].isBigX = !cells[x][y].isBigX;
-
-    if (cells[x][y].isBigX) {
-        hEdges[x][y] = false;
-        hEdges[x][y + 1] = false;
-        vEdges[x][y] = false;
-        vEdges[x + 1][y] = false;
+      }
+      return result;
     }
 
-    updateMenuUI();
-};
+    function addLineExpansionTargets(map, sourceTerrain, maxDistance, targetSet) {
+      const dirs = [[0,-1],[0,1],[-1,0],[1,0]];
+      for (let y = 0; y < map.height; y++) {
+        for (let x = 0; x < map.width; x++) {
+          if (map.grid[y][x] !== sourceTerrain) continue;
+          for (const [dx, dy] of dirs) {
+            for (let step = 1; step <= maxDistance; step++) {
+              const nx = x + dx * step;
+              const ny = y + dy * step;
+              if (!inBounds(map, nx, ny)) break;
+              if (map.grid[ny][nx] === "mountain") break;
+              targetSet.add(keyOf(nx, ny));
+            }
+          }
+        }
+      }
+    }
 
-window.toggleEdge = function (dir) {
-    const { x, y } = selectedCell;
+    function applySimulationRound(oldMap) {
+      const nextGrid = cloneGrid(oldMap.grid);
+      const changedKeys = new Set();
+      const flashMap = new Map();
+      const fireExpansion = new Set();
+      const forestExpansion = new Set();
+      const waterExpansion = new Set();
 
-    if (cells[x][y].isBigX) cells[x][y].isBigX = false;
+      addLineExpansionTargets(oldMap, "fire", 3, fireExpansion);
+      addLineExpansionTargets(oldMap, "forest", 4, forestExpansion);
+      addLineExpansionTargets(oldMap, "water", 2, waterExpansion);
 
-    if (dir === 'top') hEdges[x][y] = !hEdges[x][y];
-    if (dir === 'bottom') hEdges[x][y + 1] = !hEdges[x][y + 1];
-    if (dir === 'left') vEdges[x][y] = !vEdges[x][y];
-    if (dir === 'right') vEdges[x + 1][y] = !vEdges[x + 1][y];
+      const forestToFire = new Set();
+      const fireToWater = new Set();
+      const waterToForest = new Set();
 
-    updateMenuUI();
-};
+      for (let y = 0; y < oldMap.height; y++) {
+        for (let x = 0; x < oldMap.width; x++) {
+          if (oldMap.grid[y][x] !== "forest") continue;
+          const nearFire = neighbors4(oldMap, x, y).some(([nx, ny]) => oldMap.grid[ny][nx] === "fire");
+          if (nearFire) {
+            const region = getConnectedRegion(oldMap, x, y, "forest");
+            region.forEach(key => forestToFire.add(key));
+          }
+        }
+      }
 
-// --- 初始化与工具 ---
-document.getElementById('reset-cam').onclick = () => {
-    offsetX = 100;
-    offsetY = 100;
-    scale = 1;
-    menu.style.display = 'none';
-};
+      for (let y = 0; y < oldMap.height; y++) {
+        for (let x = 0; x < oldMap.width; x++) {
+          if (oldMap.grid[y][x] !== "fire") continue;
+          const nearWater = neighbors4(oldMap, x, y).some(([nx, ny]) => oldMap.grid[ny][nx] === "water");
+          if (nearWater) {
+            const region = getConnectedRegion(oldMap, x, y, "fire");
+            region.forEach(key => fireToWater.add(key));
+          }
+        }
+      }
 
-document.getElementById('mapSize').onchange = e => {
-    initMap(parseInt(e.target.value, 10));
-    menu.style.display = 'none';
-};
+      for (let y = 0; y < oldMap.height; y++) {
+        for (let x = 0; x < oldMap.width; x++) {
+          if (oldMap.grid[y][x] !== "water") continue;
+          const nearForest = neighbors4(oldMap, x, y).some(([nx, ny]) => oldMap.grid[ny][nx] === "forest");
+          if (nearForest) {
+            waterToForest.add(keyOf(x, y));
+          }
+        }
+      }
 
-document.getElementById('download-btn').onclick = () => {
-    const data = { cells, hEdges, vEdges, cols, rows };
-    const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'map_data.json';
-    a.click();
-    URL.revokeObjectURL(url);
-};
+      function setTerrainIfAllowed(x, y, terrain, flash) {
+        if (!inBounds(oldMap, x, y)) return;
+        if (oldMap.grid[y][x] === "mountain") return;
+        if (nextGrid[y][x] !== terrain) {
+          nextGrid[y][x] = terrain;
+          changedKeys.add(keyOf(x, y));
+          flashMap.set(keyOf(x, y), flash);
+        }
+      }
 
-window.addEventListener('resize', resizeCanvas);
+      fireToWater.forEach(key => {
+        const [x, y] = parseKey(key);
+        setTerrainIfAllowed(x, y, "water", "water");
+      });
 
-initMap(20);
-resizeCanvas();
-render();
-</script>
+      forestToFire.forEach(key => {
+        const [x, y] = parseKey(key);
+        if (fireToWater.has(key)) return;
+        setTerrainIfAllowed(x, y, "fire", "fire");
+      });
+
+      waterToForest.forEach(key => {
+        const [x, y] = parseKey(key);
+        if (fireToWater.has(key)) return;
+        setTerrainIfAllowed(x, y, "forest", "forest");
+      });
+
+      const expansionCandidates = new Set([...fireExpansion, ...forestExpansion, ...waterExpansion]);
+      expansionCandidates.forEach(key => {
+        const [x, y] = parseKey(key);
+        if (!inBounds(oldMap, x, y)) return;
+        if (oldMap.grid[y][x] === "mountain") return;
+        if (fireToWater.has(key) || forestToFire.has(key) || waterToForest.has(key)) return;
+        if (waterExpansion.has(key)) {
+          setTerrainIfAllowed(x, y, "water", "water");
+          return;
+        }
+        if (fireExpansion.has(key)) {
+          setTerrainIfAllowed(x, y, "fire", "fire");
+          return;
+        }
+        if (forestExpansion.has(key)) {
+          setTerrainIfAllowed(x, y, "forest", "forest");
+        }
+      });
+
+      return {
+        nextMap: { width: oldMap.width, height: oldMap.height, grid: nextGrid },
+        changedKeys,
+        flashMap,
+      };
+    }
+
+    function countTerrain(grid) {
+      const result = { fire: 0, forest: 0, road: 0, mountain: 0, water: 0 };
+      for (const row of grid) {
+        for (const cell of row) {
+          result[cell] += 1;
+        }
+      }
+      return result;
+    }
+
+    function pushUndo() {
+      state.undoStack.push(cloneMap(state.mapData));
+      if (state.undoStack.length > MAX_UNDO) state.undoStack.shift();
+      state.redoStack = [];
+    }
+
+    function setStatus(message, temporary = false) {
+      el.statusMessage.textContent = message;
+      if (state.statusResetTimer) clearTimeout(state.statusResetTimer);
+      if (temporary) {
+        state.statusResetTimer = setTimeout(() => {
+          if (state.mode === "editor") el.statusMessage.textContent = "已进入编辑模式";
+          else el.statusMessage.textContent = state.isRunning ? "演化进行中" : "演化已暂停";
+        }, 1500);
+      }
+    }
+
+    function triggerFlashes(flashMap) {
+      state.flashCells = new Map(flashMap);
+      renderMap();
+      setTimeout(() => {
+        state.flashCells = new Map();
+        renderMap();
+      }, 350);
+    }
+
+    function updateModeUI() {
+      el.badgeEditor.classList.toggle("active", state.mode === "editor");
+      el.badgeSimulation.classList.toggle("active", state.mode === "simulation");
+      el.badgeRunning.textContent = state.isRunning ? "运行中" : "已暂停";
+      el.badgeRunning.classList.toggle("active", state.isRunning);
+      el.undoBtn.disabled = state.mode !== "editor";
+      el.redoBtn.disabled = state.mode !== "editor";
+      renderModeActions();
+      renderBrushes();
+    }
+
+    function renderModeActions() {
+      el.modeActions.innerHTML = "";
+      if (state.mode === "editor") {
+        const btn = button("开始演化", "button primary", startSimulation);
+        el.modeActions.appendChild(btn);
+      } else {
+        el.modeActions.appendChild(button(state.isRunning ? "暂停" : "继续", "button primary", () => {
+          if (state.isRunning) pauseSimulation(); else resumeSimulation();
+        }));
+        el.modeActions.appendChild(button("单步执行", "button", stepSimulation));
+        el.modeActions.appendChild(button("返回编辑", "button secondary", returnToEditor));
+      }
+    }
+
+    function renderBrushes() {
+      el.brushToolbar.innerHTML = "";
+      BRUSHES.forEach(terrain => {
+        const meta = TERRAIN_META[terrain];
+        const btn = button(meta.icon + " " + meta.label, "button" + (state.selectedBrush === terrain ? " active" : ""), () => {
+          if (state.mode !== "editor") return;
+          state.selectedBrush = terrain;
+          renderBrushes();
+        });
+        btn.disabled = state.mode !== "editor";
+        el.brushToolbar.appendChild(btn);
+      });
+      el.currentBrushLabel.textContent = TERRAIN_META[state.selectedBrush].label;
+    }
+
+    function getPreviewRect() {
+      if (!state.dragStart || !state.dragCurrent) return null;
+      return {
+        minX: Math.min(state.dragStart.x, state.dragCurrent.x),
+        maxX: Math.max(state.dragStart.x, state.dragCurrent.x),
+        minY: Math.min(state.dragStart.y, state.dragCurrent.y),
+        maxY: Math.max(state.dragStart.y, state.dragCurrent.y),
+      };
+    }
+
+    function renderMap() {
+      const map = state.mapData;
+      const previewRect = getPreviewRect();
+      el.mapGrid.style.gridTemplateColumns = `repeat(${map.width}, 36px)`;
+      el.mapGrid.style.minWidth = Math.max(map.width * 40, 300) + "px";
+      el.mapGrid.innerHTML = "";
+
+      for (let y = 0; y < map.height; y++) {
+        for (let x = 0; x < map.width; x++) {
+          const terrain = map.grid[y][x];
+          const meta = TERRAIN_META[terrain];
+          const cell = document.createElement("button");
+          cell.type = "button";
+          cell.className = `cell ${meta.className} ${state.mode === "editor" ? "editor" : "simulation"}`;
+          cell.title = `(${x + 1}, ${y + 1}) ${meta.label}`;
+          cell.innerHTML = `<span>${meta.icon}</span><span class="coord">${x + 1},${y + 1}</span>`;
+
+          const key = keyOf(x, y);
+          const flash = state.flashCells.get(key);
+          if (flash) {
+            cell.classList.add(`flash-${flash}`);
+          }
+          if (previewRect && x >= previewRect.minX && x <= previewRect.maxX && y >= previewRect.minY && y <= previewRect.maxY) {
+            cell.classList.add("preview");
+          }
+
+          if (state.mode === "editor") {
+            cell.addEventListener("mousedown", () => handleCellMouseDown(x, y));
+            cell.addEventListener("mouseenter", () => handleCellMouseEnter(x, y));
+          }
+          el.mapGrid.appendChild(cell);
+        }
+      }
+    }
+
+    function renderStats() {
+      const counts = countTerrain(state.mapData.grid);
+      el.countFire.textContent = counts.fire;
+      el.countForest.textContent = counts.forest;
+      el.countRoad.textContent = counts.road;
+      el.countMountain.textContent = counts.mountain;
+      el.countWater.textContent = counts.water;
+      el.roundText.textContent = state.round;
+    }
+
+    function renderAll() {
+      renderBrushes();
+      renderMap();
+      renderStats();
+      updateModeUI();
+    }
+
+    function button(text, className, onClick) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = className;
+      btn.textContent = text;
+      btn.addEventListener("click", onClick);
+      return btn;
+    }
+
+    function applySingleCell(x, y, terrain) {
+      if (state.mode !== "editor") return;
+      if (!inBounds(state.mapData, x, y)) return;
+      if (state.mapData.grid[y][x] === terrain) return;
+      pushUndo();
+      state.mapData.grid[y][x] = terrain;
+      setStatus(`已将 (${x + 1}, ${y + 1}) 设为${TERRAIN_META[terrain].label}`);
+      renderAll();
+    }
+
+    function applyRectFill(start, end, terrain) {
+      if (state.mode !== "editor") return;
+      const minX = Math.min(start.x, end.x);
+      const maxX = Math.max(start.x, end.x);
+      const minY = Math.min(start.y, end.y);
+      const maxY = Math.max(start.y, end.y);
+      let changed = false;
+      const next = cloneMap(state.mapData);
+      for (let y = minY; y <= maxY; y++) {
+        for (let x = minX; x <= maxX; x++) {
+          if (next.grid[y][x] !== terrain) {
+            next.grid[y][x] = terrain;
+            changed = true;
+          }
+        }
+      }
+      if (!changed) return;
+      pushUndo();
+      state.mapData = next;
+      setStatus(`已框选填充 ${TERRAIN_META[terrain].label}`);
+      renderAll();
+    }
+
+    function handleCellMouseDown(x, y) {
+      state.dragStart = { x, y };
+      state.dragCurrent = { x, y };
+      state.isDragging = true;
+      renderMap();
+    }
+
+    function handleCellMouseEnter(x, y) {
+      if (!state.isDragging || state.mode !== "editor") return;
+      state.dragCurrent = { x, y };
+      renderMap();
+    }
+
+    function finishDrag() {
+      if (state.mode !== "editor") return;
+      if (!state.dragStart || !state.dragCurrent) {
+        state.isDragging = false;
+        state.dragStart = null;
+        state.dragCurrent = null;
+        renderMap();
+        return;
+      }
+      const single = state.dragStart.x === state.dragCurrent.x && state.dragStart.y === state.dragCurrent.y;
+      if (single) applySingleCell(state.dragStart.x, state.dragStart.y, state.selectedBrush);
+      else applyRectFill(state.dragStart, state.dragCurrent, state.selectedBrush);
+      state.isDragging = false;
+      state.dragStart = null;
+      state.dragCurrent = null;
+      renderMap();
+    }
+
+    function handleResizeMap() {
+      const width = Number(el.widthInput.value);
+      const height = Number(el.heightInput.value);
+      if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
+        setStatus("请输入有效的正整数尺寸", true);
+        return;
+      }
+      if (!window.confirm("修改尺寸会完全清空当前地图，是否继续？")) return;
+      state.mapData = createMap(width, height);
+      state.mode = "editor";
+      state.isRunning = false;
+      state.round = 0;
+      state.undoStack = [];
+      state.redoStack = [];
+      stopTimer();
+      setStatus(`已创建 ${width} × ${height} 新地图`);
+      renderAll();
+    }
+
+    function handleResetMap() {
+      if (!window.confirm("将把当前地图全部重置为道路，是否继续？")) return;
+      pushUndo();
+      state.mapData = createMap(state.mapData.width, state.mapData.height);
+      setStatus("地图已重置为道路");
+      renderAll();
+    }
+
+    function handleSave() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state.mapData));
+      setStatus("地图已保存到本地", true);
+    }
+
+    function handleLoad() {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) {
+        setStatus("未找到已保存的地图", true);
+        return;
+      }
+      try {
+        const parsed = JSON.parse(raw);
+        if (!parsed || !parsed.width || !parsed.height || !Array.isArray(parsed.grid)) throw new Error("invalid");
+        state.mapData = { width: parsed.width, height: parsed.height, grid: cloneGrid(parsed.grid) };
+        el.widthInput.value = String(parsed.width);
+        el.heightInput.value = String(parsed.height);
+        state.mode = "editor";
+        state.isRunning = false;
+        state.round = 0;
+        state.undoStack = [];
+        state.redoStack = [];
+        stopTimer();
+        setStatus("已读取本地地图", true);
+        renderAll();
+      } catch {
+        setStatus("读取失败，存档数据无效", true);
+      }
+    }
+
+    function handleUndo() {
+      if (state.mode !== "editor") return;
+      if (state.undoStack.length === 0) {
+        setStatus("没有可撤销的操作", true);
+        return;
+      }
+      const previous = state.undoStack.pop();
+      state.redoStack.push(cloneMap(state.mapData));
+      state.mapData = cloneMap(previous);
+      setStatus("已撤销一步编辑");
+      renderAll();
+    }
+
+    function handleRedo() {
+      if (state.mode !== "editor") return;
+      if (state.redoStack.length === 0) {
+        setStatus("没有可重做的操作", true);
+        return;
+      }
+      const next = state.redoStack.pop();
+      state.undoStack.push(cloneMap(state.mapData));
+      state.mapData = cloneMap(next);
+      setStatus("已重做一步编辑");
+      renderAll();
+    }
+
+    function startSimulation() {
+      state.mode = "simulation";
+      state.isRunning = true;
+      setStatus("演化已开始");
+      startTimer();
+      renderAll();
+    }
+
+    function pauseSimulation() {
+      state.isRunning = false;
+      stopTimer();
+      setStatus("演化已暂停");
+      renderAll();
+    }
+
+    function resumeSimulation() {
+      state.isRunning = true;
+      setStatus("演化进行中");
+      startTimer();
+      renderAll();
+    }
+
+    function returnToEditor() {
+      state.isRunning = false;
+      state.mode = "editor";
+      stopTimer();
+      setStatus("已返回编辑模式，保留当前地图结果");
+      renderAll();
+    }
+
+    function stepSimulation() {
+      const { nextMap, changedKeys, flashMap } = applySimulationRound(state.mapData);
+      state.mapData = nextMap;
+      state.round += 1;
+      setStatus(`第 ${state.round} 轮完成，变化 ${changedKeys.size} 格`);
+      triggerFlashes(flashMap);
+      renderAll();
+    }
+
+    function startTimer() {
+      stopTimer();
+      state.timer = setInterval(() => {
+        const { nextMap, changedKeys, flashMap } = applySimulationRound(state.mapData);
+        state.mapData = nextMap;
+        state.round += 1;
+        setStatus(`演化进行中，本轮变化 ${changedKeys.size} 格`);
+        triggerFlashes(flashMap);
+        renderAll();
+      }, TICK_MS);
+    }
+
+    function stopTimer() {
+      if (state.timer) {
+        clearInterval(state.timer);
+        state.timer = null;
+      }
+    }
+
+    el.resizeBtn.addEventListener("click", handleResizeMap);
+    el.resetBtn.addEventListener("click", handleResetMap);
+    el.saveBtn.addEventListener("click", handleSave);
+    el.loadBtn.addEventListener("click", handleLoad);
+    el.undoBtn.addEventListener("click", handleUndo);
+    el.redoBtn.addEventListener("click", handleRedo);
+    window.addEventListener("mouseup", finishDrag);
+    window.addEventListener("mouseleave", finishDrag);
+
+    renderAll();
+  </script>
 </body>
 </html>
